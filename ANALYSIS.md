@@ -161,47 +161,50 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Recruiter as Nhà Tuyển Dụng
-    participant FE as Frontend (UI)
-    participant BE as Backend (FastAPI)
-    participant parser as Parser.py
-    participant LLM as Google Gemini API
-    participant EMB as Embeddings Local Model
-    participant DB as SQLite Database
+    actor HR as Nhà Tuyển Dụng
+    participant FE as Frontend UI
+    participant BE as FastAPI Backend
+    participant Parser as Bộ đọc file (Parser)
+    participant Gemini as Gemini API
+    participant LocalModel as Model Embedding (Local)
+    participant DB as SQLite DB
 
-    Recruiter->>FE: Chọn 1 Job và tải lên nhiều file CV
-    FE->>BE: POST /api/jobs/{job_id}/candidates (FormData)
-    BE->>DB: Lấy thông tin cấu trúc hóa của Job (ParsedJob) từ SQLite
+    HR->>FE: Chọn Job & upload các file CV
+    FE->>BE: POST /api/jobs/{job_id}/candidates
+    BE->>DB: Lấy dữ liệu Job đã cấu trúc hóa
     DB-->>BE: Trả về đối tượng ParsedJob
     
-    loop Với từng file CV được tải lên
-        BE->>parser: Trích xuất text thô từ tệp CV (.pdf/.docx/.txt)
-        parser-->>BE: Text thô của CV ứng viên
-        BE->>LLM: Gửi text thô CV + System Prompt trích xuất thông tin
-        LLM-->>BE: Trả về JSON thông tin ứng viên có cấu trúc (ParsedCV)
+    loop Xử lý từng hồ sơ CV
+        BE->>Parser: Gửi file CV (PDF/DOCX/TXT)
+        Parser-->>BE: Trả về văn bản thô (raw text)
         
-        rect rgb(200, 220, 240)
-            Note over BE, EMB: Xử lý chấm điểm Hybrid
-            BE->>EMB: Yêu cầu tính toán độ tương đồng kỹ năng (Fuzzy Skill Overlap)
-            EMB-->>BE: Trả về điểm Kỹ năng (Skill Score), kỹ năng khớp, kỹ năng thiếu
-            BE->>EMB: Tính độ tương đồng ngữ nghĩa tổng thể (Profile Cosine Similarity)
-            EMB-->>BE: Trả về điểm tương đồng tổng thể (Overall Semantic Score)
-            Note over BE: Tính toán điểm Embedding:<br/>Embedding Score = 60% Skill + 40% Profile
-        end
+        BE->>Gemini: Gửi văn bản thô CV (Trích xuất)
+        Gemini-->>BE: Trả về JSON ParsedCV
         
-        BE->>LLM: Gửi ParsedCV, ParsedJob, danh sách kỹ năng khớp/thiếu để đánh giá sâu
-        LLM-->>BE: Trả về JSON MatchResult (LLM Score, thế mạnh, rủi ro, nhận xét, đề xuất)
+        BE->>LocalModel: Yêu cầu tính trùng khớp kỹ năng mờ
+        LocalModel-->>BE: Trả về Skill Score & kỹ năng khớp/thiếu
         
-        Note over BE: Tính toán điểm cuối cùng:<br/>Final Score = 40% Embedding + 60% LLM
-        BE->>DB: Lưu Candidate (Thông tin CV, kết quả MatchResult, Job ID)
+        BE->>LocalModel: Tính tương đồng CV-JD (Cosine Similarity)
+        LocalModel-->>BE: Trả về Profile Similarity Score
+        
+        Note over BE: Tính Embedding Score = 60% Skill + 40% Profile
+        
+        BE->>Gemini: Gửi ParsedCV + ParsedJob + Kỹ năng để đánh giá sâu
+        Gemini-->>BE: Trả về JSON MatchResult (LLM Score, nhận xét)
+        
+        Note over BE: Tính Final Score = 40% Embedding + 60% LLM
+        
+        BE->>DB: Lưu Candidate & MatchResult vào SQLite
         DB-->>BE: Xác nhận đã lưu ứng viên
     end
     
-    BE->>DB: Lấy danh sách ứng viên của Job ID
+    BE->>DB: Lấy danh sách ứng viên (Job ID)
     DB-->>BE: Trả về danh sách ứng viên
-    Note over BE: Sắp xếp danh sách ứng viên theo điểm Final Score giảm dần
-    BE-->>FE: Trả về danh sách ứng viên đã xếp hạng kèm báo cáo chi tiết
-    FE-->>Recruiter: Cập nhật bảng xếp hạng ứng viên lên giao diện UI
+    
+    Note over BE: Sắp xếp theo điểm Final Score giảm dần
+    
+    BE-->>FE: Trả về danh sách đã xếp hạng (JSON)
+    FE-->>HR: Cập nhật bảng xếp hạng ứng viên lên giao diện UI
 ```
 
 ---
