@@ -3,7 +3,7 @@ import io
 import docx
 import pytest
 
-from app import parser
+from app import ocr, parser
 
 
 def _make_pdf(text: str | None) -> bytes:
@@ -96,6 +96,85 @@ def test_pdf_extracts_text():
     assert "Hello PDF" in text
 
 
-def test_pdf_without_text_layer_raises_ocr_hint():
+def test_pdf_with_text_layer_does_not_use_ocr(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("OCR must not run for PDFs that already have text")
+
+    monkeypatch.setattr(ocr, "transcribe", fail)
+    assert "Hello PDF" in parser.extract_text("cv.pdf", _make_pdf("Hello PDF"))
+
+
+# ------------------------------------------------------------------ OCR ----
+
+@pytest.fixture
+def ocr_calls(monkeypatch):
+    """Fake OCR that records (content, mime_type) and returns canned text."""
+    calls = []
+
+    def fake_transcribe(content, mime_type):
+        calls.append((content, mime_type))
+        return "Văn bản từ OCR"
+
+    monkeypatch.setattr(ocr, "transcribe", fake_transcribe)
+    monkeypatch.delenv("ENABLE_OCR", raising=False)
+    return calls
+
+
+def test_scanned_pdf_falls_back_to_ocr(ocr_calls):
+    pdf = _make_pdf(None)
+    assert parser.extract_text("scan.pdf", pdf) == "Văn bản từ OCR"
+    assert ocr_calls == [(pdf, "application/pdf")]
+
+
+@pytest.mark.parametrize(
+    "filename, mime_type",
+    [
+        ("cv.png", "image/png"),
+        ("cv.JPG", "image/jpeg"),
+        ("cv.jpeg", "image/jpeg"),
+        ("cv.webp", "image/webp"),
+    ],
+)
+def test_image_files_are_read_with_ocr(ocr_calls, filename, mime_type):
+    assert parser.extract_text(filename, b"image-bytes") == "Văn bản từ OCR"
+    assert ocr_calls == [(b"image-bytes", mime_type)]
+
+
+def test_scanned_pdf_with_ocr_disabled_explains_why(ocr_calls, monkeypatch):
+    monkeypatch.setenv("ENABLE_OCR", "false")
+    with pytest.raises(ValueError, match="ENABLE_OCR"):
+        parser.extract_text("scan.pdf", _make_pdf(None))
+    assert ocr_calls == []
+
+
+def test_image_with_ocr_disabled_explains_why(ocr_calls, monkeypatch):
+    monkeypatch.setenv("ENABLE_OCR", "false")
+    with pytest.raises(ValueError, match="ENABLE_OCR"):
+        parser.extract_text("cv.png", b"x")
+    assert ocr_calls == []
+
+
+def test_ocr_that_reads_nothing_raises(monkeypatch):
+    monkeypatch.setattr(ocr, "transcribe", lambda content, mime_type: "")
+    with pytest.raises(ValueError, match="không đọc được chữ nào"):
+        parser.extract_text("blank.png", b"x")
+
+
+def test_ocr_failure_becomes_value_error_with_reason(monkeypatch):
+    def boom(content, mime_type):
+        raise RuntimeError("quota exceeded")
+
+    monkeypatch.setattr(ocr, "transcribe", boom)
+    with pytest.raises(ValueError, match="OCR thất bại: quota exceeded"):
+        parser.extract_text("scan.pdf", _make_pdf(None))
+
+
+def test_scanned_pdf_without_gemini_configured_raises_ocr_error():
+    # conftest blocks the real Gemini client, so this exercises the "no usable key" path.
     with pytest.raises(ValueError, match="OCR"):
         parser.extract_text("scan.pdf", _make_pdf(None))
+
+
+def test_unsupported_error_lists_image_formats():
+    with pytest.raises(parser.UnsupportedFileType, match=r"\.png"):
+        parser.extract_text("cv.exe", b"x")

@@ -139,6 +139,39 @@ def test_upload_candidates_keeps_good_files_and_reports_failed_ones(client):
     assert body["errors"][0]["detail"]  # human-readable reason is included
 
 
+def test_upload_candidate_from_image_goes_through_ocr(client, monkeypatch):
+    from app import ocr
+
+    monkeypatch.setattr(ocr, "transcribe", lambda content, mime_type: "Nguyen Tu Anh")
+    job = _create_job(client)
+    resp = client.post(
+        f"/api/jobs/{job['id']}/candidates",
+        files=[("files", ("scan.png", b"\x89PNG-fake", "image/png"))],
+    )
+    assert resp.status_code == 200
+    (cand,) = resp.json()["candidates"]
+    assert cand["filename"] == "scan.png"
+    assert cand["parsed"]["full_name"] == "Nguyen Tu Anh"  # fake extractor uses the OCR text
+
+
+def test_failed_ocr_is_reported_per_file(client, monkeypatch):
+    from app import ocr
+
+    def boom(content, mime_type):
+        raise RuntimeError("quota exceeded")
+
+    monkeypatch.setattr(ocr, "transcribe", boom)
+    job = _create_job(client)
+    resp = client.post(
+        f"/api/jobs/{job['id']}/candidates",
+        files=_files(("ok.txt", "a")) + [("files", ("scan.png", b"x", "image/png"))],
+    )
+    body = resp.json()
+    assert [c["filename"] for c in body["candidates"]] == ["ok.txt"]
+    assert body["errors"][0]["filename"] == "scan.png"
+    assert "quota exceeded" in body["errors"][0]["detail"]
+
+
 def test_list_candidates_is_ranked_by_score(client):
     job = _create_job(client)
     client.post(
