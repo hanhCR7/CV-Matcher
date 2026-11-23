@@ -8,7 +8,7 @@ Dự án sử dụng cơ chế **Chấm điểm Hybrid (Lai)** kết hợp giữ
 
 ## ✨ Các Tính Năng Nổi Bật
 
-- 📂 **Hỗ trợ đa định dạng**: Trích xuất nội dung văn bản từ các file CV/JD dạng `.pdf`, `.docx`, `.txt`, `.md` (bao gồm cả việc đọc bảng biểu trong file Word).
+- 📂 **Hỗ trợ đa định dạng**: Trích xuất nội dung văn bản từ các file CV/JD dạng `.pdf`, `.docx`, `.txt`, `.md` (bao gồm cả việc đọc bảng biểu trong file Word). CV dạng ảnh quét hoặc file ảnh (`.png`, `.jpg`, `.jpeg`, `.webp`) được đọc tự động bằng OCR qua Gemini.
 - 🧠 **Trích xuất dữ liệu có cấu trúc (Structured Extraction)**: Sử dụng Gemini AI định dạng cấu trúc JSON chuẩn cho thông tin CV (Họ tên, Liên hệ, Kỹ năng, Học vấn, Kinh nghiệm làm việc chi tiết) và JD (Yêu cầu kỹ năng, Học vấn, Kinh nghiệm, Trách nhiệm).
 - 🎯 **Chấm điểm kết hợp Hybrid Matcher**:
   - **Embedding Score (40% trọng số)**: Sử dụng mô hình Vector Embedding đa ngôn ngữ chạy cục bộ (local) để tính độ tương đồng ngữ nghĩa của kỹ năng và profile tổng thể (ví dụ: nhận biết được `"ReactJS"` tương tự `"React"` hoặc `"Vue.js"` tương tự `"Vue"`).
@@ -44,7 +44,8 @@ cv-jd-matcher/
 │   ├── app/
 │   │   ├── main.py          # FastAPI server, định nghĩa API và tích hợp giao diện tĩnh
 │   │   ├── models.py        # Định nghĩa các Schema dữ liệu Pydantic (Job, Candidate, MatchResult)
-│   │   ├── parser.py        # Thư viện trích xuất text từ tệp tin PDF/DOCX/TXT
+│   │   ├── parser.py        # Thư viện trích xuất text từ tệp tin PDF/DOCX/TXT/ảnh
+│   │   ├── ocr.py           # OCR bằng Gemini cho PDF ảnh quét và file ảnh
 │   │   ├── extractor.py     # Gọi API Gemini để phân tích văn bản sang JSON có cấu trúc
 │   │   ├── embeddings.py    # Xử lý vector embedding cục bộ để so khớp ngữ nghĩa kỹ năng
 │   │   ├── matcher.py       # Thuật toán lai (Hybrid) tính điểm tương thích
@@ -93,6 +94,9 @@ GEMINI_MODEL=gemini-2.5-flash
 
 # Tùy chọn: Tên file database lưu trữ dữ liệu (Mặc định: cv_matcher.db)
 CV_MATCHER_DB=cv_matcher.db
+
+# Tùy chọn: Bật/tắt OCR cho PDF ảnh quét và file ảnh (Mặc định: true)
+ENABLE_OCR=true
 ```
 
 ### 3. Khởi chạy Server Backend
@@ -143,7 +147,7 @@ Nếu phát hiện một lỗi mà chưa kịp sửa, bạn có thể viết tr�
 ## 📝 Lưu Ý Triển Khai Thực Tế
 
 1. **Chi phí API Gemini**: Mỗi CV gửi lên sẽ thực hiện 2 lượt gọi mô hình (1 lượt để trích xuất thông tin có cấu trúc, 1 lượt để đối chiếu & đánh giá). Chi phí sử dụng của dòng mô hình Gemini Flash rất thấp, hoàn toàn phù hợp để xử lý hàng ngàn hồ sơ mỗi tháng với mức phí tối thiểu.
-2. **Quét dữ liệu PDF dạng hình ảnh (Scanned PDF)**: Trình bóc tách văn bản mặc định (`parser.py`) chỉ trích xuất được text kỹ thuật số thực sự. Đối với các CV được xuất bản dạng ảnh quét không có lớp text ẩn, bạn nên tích hợp thêm công cụ OCR (ví dụ như Tesseract OCR hoặc Google Cloud Vision) trước khi đưa vào module Extractor.
+2. **CV dạng ảnh quét (Scanned PDF) và file ảnh**: `parser.py` đọc text trực tiếp từ PDF/DOCX/TXT. Nếu PDF hoàn toàn không có lớp text, hoặc file là ảnh (`.png`, `.jpg`, `.jpeg`, `.webp`), hệ thống tự động gửi file cho Gemini để OCR (`ocr.py`, dung lượng tối đa 15MB). Mỗi file như vậy tốn thêm một lượt gọi mô hình và nội dung được gửi cho Google, giống các CV thông thường; bạn có thể tắt tính năng này bằng `ENABLE_OCR=false` (file ảnh quét sẽ bị từ chối kèm thông báo rõ ràng). Lưu ý: PDF vừa có text vừa có trang ảnh quét sẽ chỉ được đọc phần text. Nếu cần OCR chạy hoàn toàn cục bộ, bạn có thể thay `ocr.transcribe` bằng Tesseract.
 3. **Bảo mật dữ liệu**: Dữ liệu tuyển dụng và thông tin cá nhân của ứng viên hiện đang được lưu trữ cục bộ trong file SQLite (`cv_matcher.db`). Khi triển khai lên môi trường dùng chung cho doanh nghiệp, bạn nên tích hợp thêm lớp Middleware xác thực người dùng (Authentication) và chuyển đổi cơ sở dữ liệu sang PostgreSQL để tăng tính phân quyền và chịu tải.
 4. **Mở rộng hàng đợi (Queue)**: Đối với các hệ thống cần xử lý hàng trăm CV cùng một lúc, nên sử dụng các kiến trúc hàng đợi bất đồng bộ (như Celery với Redis) để tránh tình trạng timeout yêu cầu HTTP từ phía client.
 

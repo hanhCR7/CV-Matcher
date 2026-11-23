@@ -5,8 +5,20 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app import embeddings, storage
+from app import embeddings, extractor, storage
 from app.models import MatchResult, ParsedCV, ParsedJob
+
+
+@pytest.fixture(autouse=True)
+def _block_real_gemini(monkeypatch):
+    """Safety net: no test may reach the real Gemini API, even if GEMINI_API_KEY
+    is set on the developer's machine (app.main loads backend/.env on import)."""
+
+    def _blocked(*args, **kwargs):
+        raise RuntimeError("Real Gemini client is blocked in tests; fake it instead.")
+
+    monkeypatch.setattr(extractor, "_client", None)
+    monkeypatch.setattr(extractor.genai, "Client", _blocked)
 
 
 @pytest.fixture

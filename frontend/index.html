@@ -1193,8 +1193,8 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        <p id="jdFileHint">Nhấp hoặc kéo thả file JD vào đây (.pdf, .docx, .txt)</p>
-        <input type="file" id="jdFileInput" style="display:none;" accept=".pdf,.docx,.txt,.md">
+        <p id="jdFileHint">Nhấp hoặc kéo thả file JD vào đây (.pdf, .docx, .txt, ảnh)</p>
+        <input type="file" id="jdFileInput" style="display:none;" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp">
       </div>
     </div>
     
@@ -1344,9 +1344,9 @@ async function selectJob(jobId) {
         <line x1="12" y1="3" x2="12" y2="15"></line>
       </svg>
       <h3>Kéo & thả nhiều CV ứng viên tại đây</h3>
-      <p>Hỗ trợ định dạng PDF, DOCX, TXT hoặc Markdown</p>
+      <p>Hỗ trợ PDF, DOCX, TXT, Markdown và ảnh (PNG, JPG, WEBP). CV dạng ảnh quét được đọc bằng OCR nên có thể lâu hơn.</p>
       <button class="btn secondary" onclick="document.getElementById('cvFileInput').click()">Chọn các file CV</button>
-      <input type="file" id="cvFileInput" multiple style="display:none;" accept=".pdf,.docx,.txt,.md">
+      <input type="file" id="cvFileInput" multiple style="display:none;" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp">
     </div>
     
     <div class="control-panel">
@@ -1842,7 +1842,7 @@ function openJobModal() {
   document.getElementById('jdFormReqs').value = '';
   document.getElementById('jdFileInput').value = '';
   selectedJdFile = null;
-  document.getElementById('jdFileHint').textContent = 'Nhấp hoặc kéo thả file JD vào đây (.pdf, .docx, .txt)';
+  document.getElementById('jdFileHint').textContent = 'Nhấp hoặc kéo thả file JD vào đây (.pdf, .docx, .txt, ảnh)';
   document.getElementById('jobModalError').innerHTML = '';
   switchModalTab('text');
   
