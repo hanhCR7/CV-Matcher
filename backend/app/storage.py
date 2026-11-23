@@ -133,9 +133,11 @@ def list_candidates(job_id: str) -> list[CandidateOut]:
     return candidates
 
 
-def delete_candidate(candidate_id: str) -> None:
+def delete_candidate(candidate_id: str) -> bool:
+    """Delete a candidate. Returns False if no such candidate existed."""
     with get_conn() as conn:
-        conn.execute("DELETE FROM candidates WHERE id = ?", (candidate_id,))
+        cur = conn.execute("DELETE FROM candidates WHERE id = ?", (candidate_id,))
+        return cur.rowcount > 0
 
 
 def _row_to_job(row: sqlite3.Row) -> JobOut:

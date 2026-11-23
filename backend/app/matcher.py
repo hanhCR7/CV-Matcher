@@ -3,7 +3,7 @@
 Combines two signals:
 1. Embedding-based semantic similarity (fast, cheap, catches synonyms like
    "ReactJS" vs "React") for skill overlap and overall profile similarity.
-2. LLM judgment (Claude) for things embeddings are bad at: weighing seniority,
+2. LLM judgment (Gemini) for things embeddings are bad at: weighing seniority,
    judging whether experience is *relevant* (not just present), spotting red
    flags, and writing a human-readable explanation.
 
@@ -38,6 +38,17 @@ Nguyên tắc chấm điểm:
 - Kinh nghiệm liên quan trực tiếp đến JD quan trọng hơn tổng số năm kinh nghiệm nói chung.
 - Không suy diễn thông tin ứng viên không cung cấp (ví dụ không đoán giới tính, tuổi tác, tình trạng hôn nhân để chấm điểm).
 - Chỉ trả JSON hợp lệ, không thêm gì khác."""
+
+
+def _to_score(value) -> float:
+    """Coerce an LLM-provided score into a float in [0, 100] (0 if unusable)."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if score != score:  # NaN
+        return 0.0
+    return max(0.0, min(100.0, score))
 
 
 def _profile_text(cv: ParsedCV) -> str:
@@ -78,7 +89,7 @@ def match_cv_to_job(cv: ParsedCV, job: ParsedJob) -> MatchResult:
     )
     llm_data = _call_json(MATCH_SYSTEM_PROMPT, payload, max_tokens=1200)
 
-    llm_score = float(llm_data.get("llm_score", 0))
+    llm_score = _to_score(llm_data.get("llm_score"))
     final_score = round(EMBEDDING_WEIGHT * embedding_score + LLM_WEIGHT * llm_score, 1)
 
     return MatchResult(

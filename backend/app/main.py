@@ -1,7 +1,7 @@
 """CV-JD Matcher API.
 
 Run with:
-    ANTHROPIC_API_KEY=sk-ant-... uvicorn app.main:app --reload --port 8000
+    GEMINI_API_KEY=... uvicorn app.main:app --reload --port 8000
 
 Endpoints:
     POST   /api/jobs                     Create a job from pasted JD text
@@ -10,6 +10,7 @@ Endpoints:
     GET    /api/jobs/{job_id}            Get one job
     DELETE /api/jobs/{job_id}            Delete a job and its candidates
     POST   /api/jobs/{job_id}/candidates Upload one or more CVs, parse + match them against the job
+                                         (returns {"candidates": [...], "errors": [...]})
     GET    /api/jobs/{job_id}/candidates List candidates for a job, ranked by fit score
     DELETE /api/candidates/{candidate_id} Delete a candidate
 """
@@ -27,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import extractor, matcher, parser, storage
-from .models import CreateJobRequest, JobOut, CandidateOut
+from .models import CandidateOut, CreateJobRequest, JobOut, UploadError, UploadResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cv-jd-matcher")
@@ -62,9 +63,12 @@ def create_job(payload: CreateJobRequest):
     return storage.create_job(title, payload.raw_text, parsed)
 
 
+# NOTE: the upload handlers below are plain `def`, not `async def`, on purpose.
+# They call blocking code (Gemini, embeddings, SQLite). FastAPI runs sync
+# handlers in a threadpool, so a slow upload doesn't stall every other request.
 @app.post("/api/jobs/upload", response_model=JobOut)
-async def create_job_from_file(file: UploadFile = File(...)):
-    content = await file.read()
+def create_job_from_file(file: UploadFile = File(...)):
+    content = file.file.read()
     try:
         raw_text = parser.extract_text(file.filename, content)
     except (parser.UnsupportedFileType, ValueError) as exc:
@@ -100,31 +104,32 @@ def remove_job(job_id: str):
 
 # --------------------------------------------------------- candidates ----
 
-@app.post("/api/jobs/{job_id}/candidates", response_model=list[CandidateOut])
-async def upload_candidates(job_id: str, files: list[UploadFile] = File(...)):
+@app.post("/api/jobs/{job_id}/candidates", response_model=UploadResponse)
+def upload_candidates(job_id: str, files: list[UploadFile] = File(...)):
     job = storage.get_job(job_id)
     if job is None:
         raise HTTPException(404, "Không tìm thấy job.")
 
-    results: list[CandidateOut] = []
-    errors: list[str] = []
+    candidates = []
+    errors: list[UploadError] = []
 
     for file in files:
+        name = file.filename or "(không tên)"
         try:
-            content = await file.read()
-            raw_text = parser.extract_text(file.filename, content)
+            content = file.file.read()
+            raw_text = parser.extract_text(name, content)
             parsed_cv = extractor.extract_cv(raw_text)
             match_result = matcher.match_cv_to_job(parsed_cv, job.parsed)
-            candidate = storage.add_candidate(job_id, file.filename, parsed_cv, match_result)
-            results.append(candidate)
+            candidates.append(storage.add_candidate(job_id, name, parsed_cv, match_result))
         except Exception as exc:  # noqa: BLE001 - report per-file, keep processing rest
-            logger.exception("Failed to process %s", file.filename)
-            errors.append(f"{file.filename}: {exc}")
+            logger.exception("Failed to process %s", name)
+            errors.append(UploadError(filename=name, detail=str(exc)))
 
-    if errors and not results:
-        raise HTTPException(422, "Không xử lý được file nào.\n" + "\n".join(errors))
+    if errors and not candidates:
+        details = "\n".join(f"{e.filename}: {e.detail}" for e in errors)
+        raise HTTPException(422, "Không xử lý được file nào.\n" + details)
 
-    return results
+    return UploadResponse(candidates=candidates, errors=errors)
 
 
 @app.get("/api/jobs/{job_id}/candidates", response_model=list[CandidateOut])
@@ -136,7 +141,8 @@ def get_candidates(job_id: str):
 
 @app.delete("/api/candidates/{candidate_id}")
 def remove_candidate(candidate_id: str):
-    storage.delete_candidate(candidate_id)
+    if not storage.delete_candidate(candidate_id):
+        raise HTTPException(404, "Không tìm thấy ứng viên.")
     return {"ok": True}
 
 

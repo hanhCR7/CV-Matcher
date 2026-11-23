@@ -1803,13 +1803,26 @@ async function handleCvFiles(files) {
   }
 
   try {
-    await api(`/jobs/${currentJobId}/candidates`, {
+    const result = await api(`/jobs/${currentJobId}/candidates`, {
       method: 'POST',
       body: formData
     });
     document.getElementById(loadingId)?.remove();
     await loadCandidates(currentJobId);
     await loadJobsQuiet();
+
+    // Some files may have failed while others succeeded: tell the user which.
+    if (result && result.errors && result.errors.length) {
+      const items = result.errors
+        .map(e => `<li>${escapeHtml(e.filename)}: ${escapeHtml(e.detail)}</li>`)
+        .join('');
+      listEl.insertAdjacentHTML('afterbegin', `
+        <div class="error-alert">
+          Không xử lý được ${result.errors.length} file:
+          <ul style="margin: 6px 0 0 18px; padding: 0;">${items}</ul>
+        </div>
+      `);
+    }
   } catch (err) {
     document.getElementById(loadingId)?.remove();
     listEl.insertAdjacentHTML('afterbegin', `
