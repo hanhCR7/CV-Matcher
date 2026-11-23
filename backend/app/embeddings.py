@@ -7,10 +7,15 @@ first run), the app falls back to LLM-only matching so the tool still works.
 """
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 _model = None
 _load_failed = False
+# Request handlers run in a threadpool, so guard the lazy model load: without
+# this, two simultaneous first requests would each load the ~470MB model.
+_load_lock = threading.Lock()
 
 MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 
@@ -19,14 +24,17 @@ def _get_model():
     global _model, _load_failed
     if _model is not None or _load_failed:
         return _model
-    try:
-        from sentence_transformers import SentenceTransformer
+    with _load_lock:
+        if _model is not None or _load_failed:  # another thread finished first
+            return _model
+        try:
+            from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer(MODEL_NAME)
-    except Exception:
-        # No internet / model not cached / torch missing, etc.
-        _load_failed = True
-        _model = None
+            _model = SentenceTransformer(MODEL_NAME)
+        except Exception:
+            # No internet / model not cached / torch missing, etc.
+            _load_failed = True
+            _model = None
     return _model
 
 

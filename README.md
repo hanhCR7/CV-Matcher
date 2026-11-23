@@ -25,7 +25,7 @@ Dự án sử dụng cơ chế **Chấm điểm Hybrid (Lai)** kết hợp giữ
 ### Backend
 - **Python 3.12 / 3.13**
 - **FastAPI**: Khung ứng dụng web API hiệu năng cao, hỗ trợ Asynchronous (async/await).
-- **Google GenAI SDK**: Kết nối trực tiếp với các mô hình Gemini thế hệ mới (mặc định sử dụng `gemini-3.5-flash`).
+- **Google GenAI SDK**: Kết nối trực tiếp với các mô hình Gemini thế hệ mới (mặc định sử dụng `gemini-2.5-flash`, có thể đổi qua biến `GEMINI_MODEL`).
 - **Sentence-Transformers**: Tạo vector biểu diễn văn bản cục bộ bằng mô hình `paraphrase-multilingual-MiniLM-L12-v2`.
 - **pdfplumber & python-docx**: Thư viện xử lý và bóc tách nội dung tệp tin văn bản.
 - **SQLite**: Hệ quản trị cơ sở dữ liệu lưu trữ local nhanh gọn, không cần cấu hình cài đặt phức tạp.
@@ -49,8 +49,11 @@ cv-jd-matcher/
 │   │   ├── embeddings.py    # Xử lý vector embedding cục bộ để so khớp ngữ nghĩa kỹ năng
 │   │   ├── matcher.py       # Thuật toán lai (Hybrid) tính điểm tương thích
 │   │   └── storage.py       # Quản lý lưu trữ SQLite cục bộ (jobs, candidates)
+│   ├── tests/               # Bộ test pytest (giả lập Gemini và model embedding, không cần mạng)
 │   ├── requirements.txt     # Danh sách thư viện Python cần cài đặt
-│   └── .env                 # File cấu hình biến môi trường và API Key (cần tạo mới)
+│   ├── requirements-dev.txt # Thư viện chạy test (kèm requirements.txt + pytest)
+│   ├── .env.example         # File mẫu cấu hình biến môi trường
+│   └── .env                 # File cấu hình thật và API Key (tạo từ .env.example, không commit)
 └── frontend/
     └── index.html           # File giao diện Single Page Application chính
 ```
@@ -74,11 +77,10 @@ pip install -r requirements.txt
 ```
 
 ### 2. Cấu hình Biến Môi trường (`.env`)
-Tạo tệp `.env` từ tệp mẫu `.env.example` hoặc tạo mới trực tiếp trong thư mục `backend`:
+Tạo tệp `.env` từ tệp mẫu `.env.example` trong thư mục `backend`:
 
 ```bash
-# Tạo file .env
-touch .env
+cp .env.example .env
 ```
 
 Nhập các khóa cấu hình sau vào `.env`:
@@ -86,8 +88,8 @@ Nhập các khóa cấu hình sau vào `.env`:
 # Bắt buộc: API Key của Google Gemini (Lấy miễn phí tại https://aistudio.google.com)
 GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
 
-# Tùy chọn: Chọn mô hình hoạt động (Mặc định: gemini-2.5-flash hoặc gemini-3.5-flash)
-GEMINI_MODEL=gemini-3.5-flash
+# Tùy chọn: Chọn mô hình hoạt động (Mặc định: gemini-2.5-flash)
+GEMINI_MODEL=gemini-2.5-flash
 
 # Tùy chọn: Tên file database lưu trữ dữ liệu (Mặc định: cv_matcher.db)
 CV_MATCHER_DB=cv_matcher.db
@@ -108,6 +110,20 @@ uvicorn app.main:app --reload --port 8000
 
 ---
 
+## 🧪 Chạy Test
+
+Bộ test dùng dữ liệu giả lập cho Gemini và model embedding, nên không cần API key hay kết nối mạng:
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+Nếu phát hiện một lỗi mà chưa kịp sửa, bạn có thể viết trước test tái hiện lỗi đó và đánh dấu `@pytest.mark.xfail(strict=True)`; khi sửa xong, pytest sẽ nhắc bỏ dấu `xfail`.
+
+---
+
 ## 🛰️ Chi Tiết API Endpoints
 
 | Method | Endpoint | Mô tả |
@@ -117,9 +133,9 @@ uvicorn app.main:app --reload --port 8000
 | **GET** | `/api/jobs` | Lấy danh sách toàn bộ các vị trí tuyển dụng (Jobs) |
 | **GET** | `/api/jobs/{job_id}` | Lấy thông tin chi tiết của một vị trí tuyển dụng |
 | **DELETE** | `/api/jobs/{job_id}` | Xóa vị trí tuyển dụng và toàn bộ hồ sơ ứng viên đi kèm |
-| **POST** | `/api/jobs/{job_id}/candidates` | Upload danh sách CV ứng viên (chấp nhận nhiều tệp tin cùng lúc) |
+| **POST** | `/api/jobs/{job_id}/candidates` | Upload danh sách CV ứng viên (chấp nhận nhiều tệp tin cùng lúc). Trả về `{"candidates": [...], "errors": [{"filename", "detail"}]}`: file nào lỗi sẽ nằm trong `errors`, các file còn lại vẫn được xử lý. Trả 422 nếu không file nào xử lý được |
 | **GET** | `/api/jobs/{job_id}/candidates` | Xem danh sách ứng viên của vị trí đó (đã sắp xếp theo điểm phù hợp giảm dần) |
-| **DELETE** | `/api/candidates/{candidate_id}`| Xóa hồ sơ của một ứng viên cụ thể |
+| **DELETE** | `/api/candidates/{candidate_id}`| Xóa hồ sơ của một ứng viên cụ thể (404 nếu không tồn tại) |
 | **GET** | `/api/health` | Kiểm tra trạng thái hoạt động của hệ thống và mô hình Embedding local |
 
 ---

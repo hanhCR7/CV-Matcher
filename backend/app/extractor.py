@@ -1,4 +1,4 @@
-"""Structured extraction of CV / Job Description text using Claude.
+"""Structured extraction of CV / Job Description text using Gemini.
 
 Both Vietnamese and English documents are supported transparently: the
 prompt instructs the model to read whichever language the source is in and

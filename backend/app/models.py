@@ -92,5 +92,17 @@ class CandidateOut(BaseModel):
     created_at: datetime
 
 
+class UploadError(BaseModel):
+    filename: str
+    detail: str
+
+
+class UploadResponse(BaseModel):
+    """Result of a multi-CV upload: the ones that worked and the ones that failed."""
+
+    candidates: List[CandidateOut] = Field(default_factory=list)
+    errors: List[UploadError] = Field(default_factory=list)
+
+
 class ErrorResponse(BaseModel):
     detail: str
